@@ -6,20 +6,23 @@
 #include <WiFiUdp.h>
 #include <SPI.h>
 #include <LiquidCrystal.h>
-#define ifrSensor1 4
-#define ifrSensor2 5
+#define ifrSensor1 5
+#define ifrSensor2 4
 
 // LCD pins <--> Arduino pins
-const int RS = 6, EN = 7, D4 = 8, D5 = 9, D6 = 10, D7 = 11;
-LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);
-
-                   
+#define RS 6
+#define EN 7
+#define D4 8
+#define D5 9
+#define D6 10
+#define D7 11
+LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);                   
 int Current = 0;                //Setting current number of occupants
-bool WiFiStatus = false;        //Setting default WiFi Status
+bool WiFiStatus =false;         //Setting default WiFi Status
 bool NPTStatus = false;         //Setting default NPT Status
-bool AppStatus = false;         //Setting default App Inventor Status
-bool ServerStatus = false;      //Setting default Server Status
-String Entry = "";              //Setting default Entry text
+bool TimerStatus = false;         //Setting default App Inventor Status
+bool uploadStatus = false;      //Setting default Server Status
+String lcdText = "";              //Setting default text
 
 // DEBUG
 bool DEBUG = true;
@@ -62,10 +65,15 @@ void setup() {
   while (!Serial) {;/*wait for serial port to connect*/}
   if(DEBUG){Serial.println("Serial comms opened");}
 
+  lcd.begin(16, 2);
+  if(DEBUG){Serial.println("LCD comms opened");}
+  if(DEBUG){lcd.clear();lcd.print("LCD SETUP");}
+  
   // IO pin setup
   pinMode(ifrSensor1, INPUT);
   pinMode(ifrSensor2, INPUT);
   if(DEBUG){Serial.println("Sensor pinmode set");}
+  if(DEBUG){lcd.clear();lcd.print("PIN SETUP");}
      
   // check for the presence of the shield
   if (WiFi.status() == WL_NO_SHIELD) {
@@ -76,6 +84,7 @@ void setup() {
 
   // attempt to connect to Wifi network:
   while (status != WL_CONNECTED) {
+    if(DEBUG){lcd.clear();lcd.print("Connecting...");}
     Serial.print("Attempting to connect to SSID: ");
     Serial.println(ssid);
     // Connect to WPA/WPA2 network. Change this line if using open or WEP network:
@@ -83,32 +92,20 @@ void setup() {
     // wait 10 seconds for connection:
     delay(10000);
   }
-
+  
+  WiFiStatus = true;
+  if(DEBUG){lcd.clear();lcd.print("Connected.");}
   // start server and show connection status
-  server.begin(); 
+  server.begin();
   printConnectionStatus(WiFi.localIP(),WiFi.SSID(),WiFi.RSSI());
   
   // date & time keeping setup
   timeKeepingSetup();
-
-  lcd.begin(16, 2); // set up number of columns and rows
-
-  //Set placeholders for indicators
-  lcd.setCursor(0, 0);          // move cursor to   (0, 0)
-  lcd.print("W:");              // WiFi placeholder (0, 0)
-
-  lcd.setCursor(4, 0);          // move cursor to   (4, 0)
-  lcd.print("N:");              // NPT placeholder (4, 0)
-
-  lcd.setCursor(8, 0);          // move cursor to   (8, 0)
-  lcd.print("A:");              // App placeholder (8, 0)
-
-  lcd.setCursor(12, 0);         // move cursor to   (12, 0)
-  lcd.print("S:");              // Server placeholder (12, 0)
-
-  lcd.setCursor(12, 1);         // move cursor to   (13, 1)
-  lcd.print("/");               // "/" placeholder (13, 1)
-
+  
+  // LCD setup
+  lcdStatusSetup();
+  setLCD(WiFiStatus,NPTStatus,TimerStatus,uploadStatus,counter,roomUpperLimit,lcdText);
+  if(DEBUG){Serial.println("7 Seg Setup");}
 
   // setup interrupts
   attachInterrupt(digitalPinToInterrupt(ifrSensor1), ifr1interrupt, CHANGE);
@@ -116,9 +113,9 @@ void setup() {
   ifr1interrupt();
   ifr2interrupt();
   if(DEBUG){Serial.println("Interrupts set");}
-
-  setLCD(1,1,0,1,counter,roomUpperLimit,"Test");
-  if(DEBUG){Serial.println("7 Seg");}
+  
+  lcdText = "  READY  "; // length 9
+  updateLCDDisplayText();
   
 }
 
@@ -140,6 +137,8 @@ void loop() {
         if(DEBUG){Serial.print(" start ");}
         firstEventAt = millis();
         if(DEBUG){Serial.println(firstEventAt);}
+        lcdText = "         "; // length 9
+        updateLCDDisplayText();
       }
     
     // if sensor one is active & the other timer is on & this timer is not on
@@ -157,7 +156,7 @@ void loop() {
         completedTiming1 = true;  
       } 
   // debounce  
-  delay(50);    
+  delay(10);    
   }
   
   // if sensor 2 state change
@@ -171,6 +170,8 @@ void loop() {
         if(DEBUG){Serial.print(" start ");}
         firstEventAt = millis();
         if(DEBUG){Serial.println(firstEventAt);}
+        lcdText = "         "; // length 9
+        updateLCDDisplayText();
       }
     // if sensor two is active & the other timer is on & this timer is not on
     if((ifrSensor2state == LOW) && weAreTiming2 && !weAreTiming1)
@@ -187,7 +188,7 @@ void loop() {
         completedTiming2 = true;  
       }
   // debounce     
-  delay(50);
+  delay(10);
   }
 
   // if the measured time is within range
@@ -199,12 +200,13 @@ void loop() {
     if(DEBUG){printRTC();}
     countUp();
     writeToString(true);
-    for(int x = 0; x < timeAfterSuccessfulDetection; x++)
-      {
-        Serial.print("waiting...");
-        delay(1000);
-      }
+    lcdText = "   IN    "; // length 9
+    updateLCDDisplayText();
+    lcd.setCursor(5,1);    //move cursor to  (5,1)
+    waitLoop();
     Serial.println("");
+    lcdText = "  READY  "; // length 9
+    updateLCDDisplayText();
   }
 
   // if the measured time is outside range
@@ -213,15 +215,13 @@ void loop() {
     // allow timer 1 to be started again
     completedTiming1 = false;
     Serial.println("time too long");
-    for(int x = 0; x < timeAfterSuccessfulDetection; x++)
-    {
-      Serial.print("waiting...");
-      delay(1000);
-    }
+    waitLoop();
     Serial.println("");
+    lcdText = "  READY  "; // length 9
+    updateLCDDisplayText();
   }
   
-    // if the measured time is within rang
+    // if the measured time is within range
     if((timeBetweenEvents <= timeBetweenSensorEvents) && completedTiming2)
     {
       // allow timer 2 to be started again
@@ -230,12 +230,12 @@ void loop() {
       if(DEBUG){printRTC();}
       countDown();
       writeToString(false);
-      for(int x = 0; x < timeAfterSuccessfulDetection; x++)
-        {
-          Serial.print("waiting...");
-          delay(1000);
-        }
-      Serial.println("");
+      lcdText = "   OUT   "; // length 9
+      updateLCDDisplayText();
+      lcd.setCursor(6,1);    //move cursor to  (6,1)
+      waitLoop();
+      lcdText = "  READY  "; // length 9
+      updateLCDDisplayText();
   }
 
   // if the measured time is outside range
@@ -243,12 +243,13 @@ void loop() {
   {
     completedTiming2 = false;
     Serial.println("time too long");
-    for(int x = 0; x < timeAfterSuccessfulDetection; x++)
-      {
-        Serial.print("waiting...");
-        delay(1000);
-      }
+    lcdText = " ERROR   "; // length 9
+    updateLCDDisplayText();
+    lcd.setCursor(6,1);    //move cursor to  (6,1)
+    waitLoop();
     Serial.println("");
+    lcdText = "  READY  "; // length 9
+    updateLCDDisplayText();
   }
 
   // if the measured time is outside range
@@ -257,19 +258,30 @@ void loop() {
     weAreTiming1 = false;
     weAreTiming2 = false;
     Serial.println("detection timeout");
-    for(int x = 0; x < timeAfterSuccessfulDetection; x++)
-      {
-        Serial.print("waiting...");
-        delay(1000);
-      }
-    Serial.println("");
+    lcdText = "TIMEOUT "; // length 9
+    updateLCDDisplayText();
+    lcd.setCursor(7,1);    //move cursor to  (7,1)
+    waitLoop();
   }
 
+  // if we are at capacity
   if(counter >= roomUpperLimit)
   {
     Serial.println("ROOM FULL");
+    lcdText = "ROOM FULL"; // length 9
+    updateLCDDisplayText();
     delay(10);
   }
+
+  if(weAreTiming1 ||  weAreTiming2){
+    TimerStatus = true;
+  }
+  else{
+    TimerStatus = false;
+  }
+
+// timer lcd update
+updateTimerStatusText();
 
 // remember last state
 previfrSensor1state = ifrSensor1state;
@@ -277,7 +289,7 @@ previfrSensor2state = ifrSensor2state;
 
 // update displays
 hostWebsite();
-setLCD(1,1,0,1,counter,roomUpperLimit,"Test");
+setLCD(WiFiStatus,NPTStatus,TimerStatus,uploadStatus,counter,roomUpperLimit,lcdText);
 
 // reinstate the interrupts to look for sensor change
 attachInterrupt(digitalPinToInterrupt(ifrSensor1), ifr1interrupt, CHANGE);
@@ -314,17 +326,18 @@ void hostWebsite()
     bool currentLineIsBlank = true;
     while (client.connected()) 
     {
-      //Serial.println("conncted but not available");
       if(millis() - clientFirstValue >= 2000){break;}
       if (client.available()) 
       {
+        uploadStatus = true;
+        updateUploadStatusText();
         char c = client.read();
         Serial.write(c);
         // if you've gotten to the end of the line (received a newline
         // character) and the line is blank, the http request has ended,
         // so you can send a reply
         if (c == '\n' && currentLineIsBlank) 
-        {
+        { 
           // send a standard http response header
           client.println("HTTP/1.1 200 OK");
           client.println("Content-Type: text/html");
@@ -355,100 +368,18 @@ void hostWebsite()
     // close the connection:
     client.stop();
     Serial.println("client disconnected");
+    uploadStatus = false;
+    updateUploadStatusText();
   }
-}
-
-void countUp()
-{
-  if((counter + 1) <= roomUpperLimit)
-  {
-    counter++;
-    Serial.println(counter);
-  }
-  else
-  {
-    Serial.println("Upper Limit");
-  }
- 
-}
-
-void countDown()
-{
-  if((counter - 1) >= roomLowerLimit)
-  {
-    counter--;
-    Serial.println(counter);
-  }
-  else
-  {
-    Serial.println("Lower Limit");
-  }  
 }
 
 void writeToString(bool detectionDirection)
 {
-  if(detectionDirection){
-    html += String("IN") + String("\t");
-  }
-  else{
-    html += String("OUT") + String("\t");
-  }
-
-  html += String(counter) + String("\t");
-  
-  html += String(rtc.getDay()) + "/" + String(rtc.getMonth()) + "/" + String(rtc.getYear()) + "\t";
+  String delimiter = "\t";
+  if(detectionDirection){html += String("IN") + delimiter;}
+  else{html += String("OUT") + delimiter;}
+  html += String(counter) + "/" + roomUpperLimit + delimiter;
+  html += String(rtc.getDay()) + "/" + String(rtc.getMonth()) + "/" + String(rtc.getYear()) + delimiter;
   // Print date...
   html += String(print2digits(rtc.getHours())) + ":" + String(print2digits(rtc.getMinutes())) + ":" + String(print2digits(rtc.getSeconds())) + "<br>";  
-}
-
-void setLCD(bool WiFiStatus, bool NPTStatus, bool AppStatus, bool ServerStatus, int Current, int Max, String Entry) //
-{
-  lcd.setCursor(2, 0);          // move cursor to   (2, 0)
-  if(WiFiStatus)                //WiFi status       (2, 0)
-{  
-  lcd.write("Y");               
-  }
-  else
-{
-    lcd.write("N");
-  }
-  
-  lcd.setCursor(6, 0);          // move cursor to   (6, 0)
-  if(NPTStatus)                 //NPT status        (6, 0)
-{  
-  lcd.write("Y");               
-  }
-  else
-{
-    lcd.write("N");
-  }
-  
-  lcd.setCursor(10, 0);          // move cursor to   (10, 0)
-  if(AppStatus)                  //App Inventor status(10, 0)
-{  
-  lcd.write("Y");               
-  }
-  else
-{
-    lcd.write("N");
-  }
-
-  lcd.setCursor(14, 0);          // move cursor to    (14, 0)
-  if(ServerStatus)               //Server status      (14, 0)
-{  
-  lcd.write("Y");               
-  }
-  else
-{
-    lcd.write("N");
-  }
-
-  lcd.setCursor(14,1);            //move cursor to  (14,1)
-  lcd.print(Max);                 //max number of occupants
-
-  lcd.setCursor(10,1);            //move cursor to  (11,1)
-  lcd.print(Current);             //current number of occupants
-
-  lcd.setCursor(0,1);             //move cursor to (2,1)
-  lcd.print(Entry);               //Display text
 }
