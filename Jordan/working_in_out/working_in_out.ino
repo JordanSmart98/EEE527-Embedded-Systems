@@ -5,10 +5,24 @@
 #include <WiFi101.h>
 #include <WiFiUdp.h>
 #include <SPI.h>
-#define ifrSensor1 5
-#define ifrSensor2 4
+#include <LiquidCrystal.h>
+#define ifrSensor1 4
+#define ifrSensor2 5
+
+// LCD pins <--> Arduino pins
+const int RS = 6, EN = 7, D4 = 8, D5 = 9, D6 = 10, D7 = 11;
+LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);
+
+                   
+int Current = 0;                //Setting current number of occupants
+bool WiFiStatus = false;        //Setting default WiFi Status
+bool NPTStatus = false;         //Setting default NPT Status
+bool AppStatus = false;         //Setting default App Inventor Status
+bool ServerStatus = false;      //Setting default Server Status
+String Entry = "";              //Setting default Entry text
+
 // DEBUG
-bool DEBUG = false;
+bool DEBUG = true;
 // networking vars
 int status = WL_IDLE_STATUS;      //connection status
 //enter network data in the Secret tab/arduino_secrets.h
@@ -34,8 +48,8 @@ unsigned long secondEventAt;
 unsigned long timeBetweenEvents;
 String html = "";
 int counter = 0;
-int roomUpperLimit = 5;
-int roomLowerLimit = 0;
+int roomUpperLimit = 5; //Setting max number of occupants
+int roomLowerLimit = 0; 
 int timeBetweenSensorEvents = 500; // milliseconds
 int timeAfterSuccessfulDetection = 3; // seconds
 // function_lib.h must be declared after var defininition
@@ -77,12 +91,34 @@ void setup() {
   // date & time keeping setup
   timeKeepingSetup();
 
+  lcd.begin(16, 2); // set up number of columns and rows
+
+  //Set placeholders for indicators
+  lcd.setCursor(0, 0);          // move cursor to   (0, 0)
+  lcd.print("W:");              // WiFi placeholder (0, 0)
+
+  lcd.setCursor(4, 0);          // move cursor to   (4, 0)
+  lcd.print("N:");              // NPT placeholder (4, 0)
+
+  lcd.setCursor(8, 0);          // move cursor to   (8, 0)
+  lcd.print("A:");              // App placeholder (8, 0)
+
+  lcd.setCursor(12, 0);         // move cursor to   (12, 0)
+  lcd.print("S:");              // Server placeholder (12, 0)
+
+  lcd.setCursor(12, 1);         // move cursor to   (13, 1)
+  lcd.print("/");               // "/" placeholder (13, 1)
+
+
   // setup interrupts
   attachInterrupt(digitalPinToInterrupt(ifrSensor1), ifr1interrupt, CHANGE);
   attachInterrupt(digitalPinToInterrupt(ifrSensor2), ifr2interrupt, CHANGE);
   ifr1interrupt();
   ifr2interrupt();
   if(DEBUG){Serial.println("Interrupts set");}
+
+  setLCD(1,1,0,1,counter,roomUpperLimit,"Test");
+  if(DEBUG){Serial.println("7 Seg");}
   
 }
 
@@ -125,7 +161,8 @@ void loop() {
   }
   
   // if sensor 2 state change
-  if(ifrSensor2state != previfrSensor2state){
+  if(ifrSensor2state != previfrSensor2state)
+  {
     // if sensor 2 is active and we are not timing any other event
     if ((ifrSensor2state == LOW) && !weAreTiming1 && !weAreTiming2)
       {
@@ -214,11 +251,33 @@ void loop() {
     Serial.println("");
   }
 
+  // if the measured time is outside range
+  if(((millis() - firstEventAt) >= 1000) && (weAreTiming1 || weAreTiming2))
+  {
+    weAreTiming1 = false;
+    weAreTiming2 = false;
+    Serial.println("detection timeout");
+    for(int x = 0; x < timeAfterSuccessfulDetection; x++)
+      {
+        Serial.print("waiting...");
+        delay(1000);
+      }
+    Serial.println("");
+  }
+
+  if(counter >= roomUpperLimit)
+  {
+    Serial.println("ROOM FULL");
+    delay(10);
+  }
+
 // remember last state
 previfrSensor1state = ifrSensor1state;
 previfrSensor2state = ifrSensor2state;
 
+// update displays
 hostWebsite();
+setLCD(1,1,0,1,counter,roomUpperLimit,"Test");
 
 // reinstate the interrupts to look for sensor change
 attachInterrupt(digitalPinToInterrupt(ifrSensor1), ifr1interrupt, CHANGE);
@@ -301,7 +360,6 @@ void hostWebsite()
 
 void countUp()
 {
-
   if((counter + 1) <= roomUpperLimit)
   {
     counter++;
@@ -311,12 +369,11 @@ void countUp()
   {
     Serial.println("Upper Limit");
   }
-  
+ 
 }
 
 void countDown()
 {
-
   if((counter - 1) >= roomLowerLimit)
   {
     counter--;
@@ -325,13 +382,11 @@ void countDown()
   else
   {
     Serial.println("Lower Limit");
-  }
-  
+  }  
 }
 
 void writeToString(bool detectionDirection)
 {
-
   if(detectionDirection){
     html += String("IN") + String("\t");
   }
@@ -343,6 +398,57 @@ void writeToString(bool detectionDirection)
   
   html += String(rtc.getDay()) + "/" + String(rtc.getMonth()) + "/" + String(rtc.getYear()) + "\t";
   // Print date...
-  html += String(print2digits(rtc.getHours())) + ":" + String(print2digits(rtc.getMinutes())) + ":" + String(print2digits(rtc.getSeconds())) + "<br>"; 
+  html += String(print2digits(rtc.getHours())) + ":" + String(print2digits(rtc.getMinutes())) + ":" + String(print2digits(rtc.getSeconds())) + "<br>";  
+}
+
+void setLCD(bool WiFiStatus, bool NPTStatus, bool AppStatus, bool ServerStatus, int Current, int Max, String Entry) //
+{
+  lcd.setCursor(2, 0);          // move cursor to   (2, 0)
+  if(WiFiStatus)                //WiFi status       (2, 0)
+{  
+  lcd.write("Y");               
+  }
+  else
+{
+    lcd.write("N");
+  }
   
+  lcd.setCursor(6, 0);          // move cursor to   (6, 0)
+  if(NPTStatus)                 //NPT status        (6, 0)
+{  
+  lcd.write("Y");               
+  }
+  else
+{
+    lcd.write("N");
+  }
+  
+  lcd.setCursor(10, 0);          // move cursor to   (10, 0)
+  if(AppStatus)                  //App Inventor status(10, 0)
+{  
+  lcd.write("Y");               
+  }
+  else
+{
+    lcd.write("N");
+  }
+
+  lcd.setCursor(14, 0);          // move cursor to    (14, 0)
+  if(ServerStatus)               //Server status      (14, 0)
+{  
+  lcd.write("Y");               
+  }
+  else
+{
+    lcd.write("N");
+  }
+
+  lcd.setCursor(14,1);            //move cursor to  (14,1)
+  lcd.print(Max);                 //max number of occupants
+
+  lcd.setCursor(10,1);            //move cursor to  (11,1)
+  lcd.print(Current);             //current number of occupants
+
+  lcd.setCursor(0,1);             //move cursor to (2,1)
+  lcd.print(Entry);               //Display text
 }
