@@ -55,6 +55,8 @@ int roomUpperLimit = 5; //Setting max number of occupants
 int roomLowerLimit = 0; 
 int timeBetweenSensorEvents = 500; // milliseconds
 int timeAfterSuccessfulDetection = 3; // seconds
+int roomFull = false;
+int timeout = 1000;
 // function_lib.h must be declared after var defininition
 #include "function_lib.h"
 
@@ -66,7 +68,7 @@ void setup() {
   if(DEBUG){Serial.println("Serial comms opened");}
 
   lcd.begin(16, 2);
-  if(DEBUG){Serial.println("LCD comms opened");}
+  if(DEBUG){Serial.println("LCD initalised");}
   if(DEBUG){lcd.clear();lcd.print("LCD SETUP");}
   
   // IO pin setup
@@ -75,26 +77,8 @@ void setup() {
   if(DEBUG){Serial.println("Sensor pinmode set");}
   if(DEBUG){lcd.clear();lcd.print("PIN SETUP");}
      
-  // check for the presence of the shield
-  if (WiFi.status() == WL_NO_SHIELD) {
-    Serial.println("WiFi shield not present");
-    // don't continue:
-    while (true);
-  }
-
-  // attempt to connect to Wifi network:
-  while (status != WL_CONNECTED) {
-    if(DEBUG){lcd.clear();lcd.print("Connecting...");}
-    Serial.print("Attempting to connect to SSID: ");
-    Serial.println(ssid);
-    // Connect to WPA/WPA2 network. Change this line if using open or WEP network:
-    status = WiFi.begin(ssid, pass);
-    // wait 10 seconds for connection:
-    delay(10000);
-  }
+  WiFiSetup();
   
-  WiFiStatus = true;
-  if(DEBUG){lcd.clear();lcd.print("Connected.");}
   // start server and show connection status
   server.begin();
   printConnectionStatus(WiFi.localIP(),WiFi.SSID(),WiFi.RSSI());
@@ -199,14 +183,22 @@ void loop() {
     Serial.println("IN");
     if(DEBUG){printRTC();}
     countUp();
+    if(counter < roomUpperLimit){roomFull = false;}
     writeToString(true);
     lcdText = "   IN    "; // length 9
     updateLCDDisplayText();
     lcd.setCursor(5,1);    //move cursor to  (5,1)
     waitLoop();
     Serial.println("");
-    lcdText = "  READY  "; // length 9
-    updateLCDDisplayText();
+    if(roomFull){
+      Serial.println("ROOM FULL");
+      lcdText = "ROOM FULL"; // length 9
+      updateLCDDisplayText();
+    }
+    else{
+      lcdText = "  READY  "; // length 9
+      updateLCDDisplayText();
+    }
   }
 
   // if the measured time is outside range
@@ -215,10 +207,20 @@ void loop() {
     // allow timer 1 to be started again
     completedTiming1 = false;
     Serial.println("time too long");
+    lcdText = " ERROR   "; // length 9
+    updateLCDDisplayText();
+    lcd.setCursor(6,1);    //move cursor to  (6,1)
     waitLoop();
     Serial.println("");
-    lcdText = "  READY  "; // length 9
-    updateLCDDisplayText();
+    if(roomFull){
+        Serial.println("ROOM FULL");
+        lcdText = "ROOM FULL"; // length 9
+        updateLCDDisplayText();
+      }
+      else{
+        lcdText = "  READY  "; // length 9
+        updateLCDDisplayText();
+      }
   }
   
     // if the measured time is within range
@@ -229,15 +231,25 @@ void loop() {
       Serial.println("OUT");
       if(DEBUG){printRTC();}
       countDown();
+      if(counter < roomUpperLimit){roomFull = false;}
       writeToString(false);
       lcdText = "   OUT   "; // length 9
       updateLCDDisplayText();
       lcd.setCursor(6,1);    //move cursor to  (6,1)
       waitLoop();
-      lcdText = "  READY  "; // length 9
-      updateLCDDisplayText();
+      if(roomFull){
+        Serial.println("ROOM FULL");
+        lcdText = "ROOM FULL"; // length 9
+        updateLCDDisplayText();
+      }
+      else{
+        lcdText = "  READY  "; // length 9
+        updateLCDDisplayText();
+      }
   }
 
+  
+  
   // if the measured time is outside range
   if((timeBetweenEvents > timeBetweenSensorEvents) && completedTiming2)
   {
@@ -248,12 +260,19 @@ void loop() {
     lcd.setCursor(6,1);    //move cursor to  (6,1)
     waitLoop();
     Serial.println("");
-    lcdText = "  READY  "; // length 9
-    updateLCDDisplayText();
+    if(roomFull){
+        Serial.println("ROOM FULL");
+        lcdText = "ROOM FULL"; // length 9
+        updateLCDDisplayText();
+      }
+      else{
+        lcdText = "  READY  "; // length 9
+        updateLCDDisplayText();
+      }
   }
 
   // if the measured time is outside range
-  if(((millis() - firstEventAt) >= 1000) && (weAreTiming1 || weAreTiming2))
+  if(((millis() - firstEventAt) >= timeout) && (weAreTiming1 || weAreTiming2))
   {
     weAreTiming1 = false;
     weAreTiming2 = false;
@@ -262,17 +281,26 @@ void loop() {
     updateLCDDisplayText();
     lcd.setCursor(7,1);    //move cursor to  (7,1)
     waitLoop();
+    if(roomFull){
+      Serial.println("ROOM FULL");
+      lcdText = "ROOM FULL"; // length 9
+      updateLCDDisplayText();
+    }
+    else{
+      lcdText = "  READY  "; // length 9
+      updateLCDDisplayText();
+    }
   }
 
-  // if we are at capacity
-  if(counter >= roomUpperLimit)
+  // if we are at capacity do this once
+  if((counter >= roomUpperLimit) && !roomFull)
   {
     Serial.println("ROOM FULL");
     lcdText = "ROOM FULL"; // length 9
     updateLCDDisplayText();
-    delay(10);
+    roomFull = true;
   }
-
+  
   if(weAreTiming1 ||  weAreTiming2){
     TimerStatus = true;
   }

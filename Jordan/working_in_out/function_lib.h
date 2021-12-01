@@ -1,3 +1,26 @@
+void WiFiSetup(){
+    // check for the presence of the shield
+  if (WiFi.status() == WL_NO_SHIELD) {
+    Serial.println("WiFi shield not present");
+    // don't continue:
+    while (true);
+  }
+
+  // attempt to connect to Wifi network:
+  while (status != WL_CONNECTED) {
+    lcd.clear();lcd.print("Connecting...");
+    Serial.print("Attempting to connect to SSID: ");
+    Serial.println(ssid);
+    // Connect to WPA/WPA2 network. Change this line if using open or WEP network:
+    status = WiFi.begin(ssid, pass);
+    // wait 10 seconds for connection:
+    delay(10000);
+  }
+  
+  WiFiStatus = true;
+  lcd.clear();lcd.print("Connected.");
+}
+
 void printConnectionStatus(long int ipAddress, String ssid, long rssi){
   // print connection status
   Serial.println("Connected");
@@ -47,8 +70,8 @@ void getTimeFromNTP()
   // initialize NTP
   timeClient.update();
   epochTime = timeClient.getEpochTime();
-  Serial.print("Epoch Time: ");
-  Serial.println(epochTime);  
+  if(DEBUG){Serial.print("Epoch Time: ");}
+  if(DEBUG){Serial.println(epochTime);}  
 }
 
 void timeKeepingSetup(){
@@ -175,6 +198,7 @@ void countUp()
   }
   else
   {
+    counter++; // this data is important to keep
     Serial.println("Upper Limit");
   }
 }
