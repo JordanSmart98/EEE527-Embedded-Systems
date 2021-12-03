@@ -8,6 +8,7 @@
 #include <LiquidCrystal.h>
 #define ifrSensor1 5
 #define ifrSensor2 4
+#define resetButton 2
 
 // LCD pins <--> Arduino pins
 #define RS 6
@@ -74,6 +75,7 @@ void setup() {
   // IO pin setup
   pinMode(ifrSensor1, INPUT);
   pinMode(ifrSensor2, INPUT);
+  pinMode(resetButton, INPUT_PULLUP);
   if(DEBUG){Serial.println("Sensor pinmode set");}
   if(DEBUG){lcd.clear();lcd.print("PIN SETUP");}
      
@@ -108,6 +110,15 @@ void loop() {
   // disable interrupts to stop states changing during comparing values
   detachInterrupt(digitalPinToInterrupt(ifrSensor1));
   detachInterrupt(digitalPinToInterrupt(ifrSensor2));
+
+  // reset counter to 0
+  if(!(digitalRead(resetButton)))
+  {
+    counter = 0;
+    roomFull = false;
+    lcdText = "  READY  "; // length 9
+    updateLCDDisplayText();
+    }
   
   // if sensor 1 state change
   if(ifrSensor1state != previfrSensor1state)
