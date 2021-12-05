@@ -414,7 +414,7 @@ void hostWebsite()
 
 void writeToString(bool detectionDirection)
 {
-  String delimiter = "\t";
+  String delimiter = ",";
   if(detectionDirection){html += String("IN") + delimiter;}
   else{html += String("OUT") + delimiter;}
   html += String(counter) + "/" + roomUpperLimit + delimiter;
